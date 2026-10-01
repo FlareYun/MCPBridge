@@ -48,20 +48,21 @@ def main():
     with (contents / "Info.plist").open("wb") as file:
         plistlib.dump(metadata, file)
     iconset = ROOT / ".build/Bridge.iconset"
-    run("swift", str(ROOT / "scripts/MakeIcon.swift"), str(iconset))
+    run("swift", str(ROOT / "scripts/make-icon.swift"), str(iconset))
     run("/usr/bin/iconutil", "-c", "icns", str(iconset), "-o", str(resources / "AppIcon.icns"))
-    for name in ["README.md", "AGENT_GUIDE.md"]:
+    for name in ["README.md", "CONTRIBUTING.md", "THIRD_PARTY_NOTICES.txt"]:
         shutil.copy2(ROOT / name, destination / name)
+    shutil.copytree(ROOT / "docs", destination / "docs", dirs_exist_ok=True)
     examples = destination / "examples"
     shutil.copytree(ROOT / "examples", examples, dirs_exist_ok=True)
     shutil.copy2(ROOT / "Tests/Fixtures/server.py", examples / "demo-server.py")
-    source = destination / "Source"
+    source = destination / "source"
     ignored = [".build", ".git", ".swiftpm", "dist", "__pycache__", ".DS_Store"]
     if ROOT in destination.parents:
         ignored.append(destination.relative_to(ROOT).parts[0])
     shutil.copytree(ROOT, source, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns(*ignored))
-    notices = ["MCP Bridge — third-party notices\n\nFull upstream license texts follow. Versions are locked in Source/Package.resolved.\n"]
+    notices = ["MCP Bridge — third-party notices\n\nFull upstream license texts follow. Versions are locked in Package.resolved.\n"]
     pins = json.loads((ROOT / "Package.resolved").read_text())["pins"]
     for pin in pins:
         identity = pin["identity"]

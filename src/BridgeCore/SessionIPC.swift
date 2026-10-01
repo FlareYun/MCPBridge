@@ -1,6 +1,10 @@
 import Foundation
 import CryptoKit
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 private struct SessionRequest: Codable, Sendable {
     let version: Int
@@ -18,23 +22,34 @@ private final class LocalSocket: @unchecked Sendable {
         self.fd = fd
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         _ = fcntl(fd, F_SETFL, O_NONBLOCK)
+        #if os(macOS)
         var one: Int32 = 1
         _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+        #endif
     }
-    deinit { Darwin.close(fd) }
-    func shutDown() { _ = Darwin.shutdown(fd, SHUT_RDWR) }
+    deinit { close(fd) }
+    func shutDown() { _ = shutdown(fd, Int32(SHUT_RDWR)) }
     func verifyPeer() throws {
+        #if os(macOS)
         var uid: uid_t = 0, gid: gid_t = 0
         guard getpeereid(fd, &uid, &gid) == 0, uid == geteuid() else {
             throw BridgeError(3, "Local session peer identity does not match this user.")
         }
+        #elseif os(Linux)
+        var credentials = ucred()
+        var length = socklen_t(MemoryLayout<ucred>.size)
+        guard getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &length) == 0,
+              credentials.uid == geteuid() else {
+            throw BridgeError(3, "Local session peer identity does not match this user.")
+        }
+        #endif
     }
     func read(_ count: Int, deadline: ContinuousClock.Instant) async throws -> Data {
         var data = Data(), buffer = [UInt8](repeating: 0, count: min(count, 65536))
         while data.count < count {
             try Task.checkCancellation()
             guard ContinuousClock.now < deadline else { throw BridgeError(5, "Local session response timed out. No call was retried.") }
-            let n = Darwin.recv(fd, &buffer, min(buffer.count, count - data.count), 0)
+            let n = recv(fd, &buffer, min(buffer.count, count - data.count), 0)
             if n > 0 { data.append(contentsOf: buffer.prefix(n)); continue }
             if n == 0 { throw BridgeError(3, "Local session closed. A tool may already have completed; no call was retried.") }
             guard errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR else { throw BridgeError(3, "Local session read failed. No call was retried.") }
@@ -57,7 +72,12 @@ private final class LocalSocket: @unchecked Sendable {
         while offset < data.count {
             try Task.checkCancellation()
             guard ContinuousClock.now < deadline else { throw BridgeError(5, "Local session send timed out. No call was retried.") }
-            let n = data.withUnsafeBytes { Darwin.send(fd, $0.baseAddress!.advanced(by: offset), data.count - offset, 0) }
+            #if os(Linux)
+            let flags = Int32(MSG_NOSIGNAL)
+            #else
+            let flags: Int32 = 0
+            #endif
+            let n = data.withUnsafeBytes { send(fd, $0.baseAddress!.advanced(by: offset), data.count - offset, flags) }
             if n > 0 { offset += n; continue }
             guard n < 0, errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR else { throw BridgeError(3, "Local session send failed. No call was retried.") }
             try await Task.sleep(for: .milliseconds(10))
@@ -104,7 +124,9 @@ private enum LocalEndpoint {
     static func address<T>(_ path: String, _ body: (UnsafePointer<sockaddr>, socklen_t) throws -> T) throws -> T {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
+        #if os(macOS)
         address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        #endif
         let bytes = Array(path.utf8) + [0]
         guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else { throw BridgeError(2, "Local socket path is too long.") }
         withUnsafeMutableBytes(of: &address.sun_path) { destination in destination.copyBytes(from: bytes) }
@@ -124,10 +146,15 @@ public enum SessionClient {
         try LocalEndpoint.checkDirectory(create: false)
         let path = LocalEndpoint.path(profileURL)
         try LocalEndpoint.checkSocket(path)
-        let socket = try LocalSocket(Darwin.socket(AF_UNIX, SOCK_STREAM, 0))
+        #if os(Linux)
+        let socketType = Int32(SOCK_STREAM.rawValue)
+        #else
+        let socketType = SOCK_STREAM
+        #endif
+        let socket = try LocalSocket(socket(AF_UNIX, socketType, 0))
         let deadline = ContinuousClock.now.advanced(by: .seconds(seconds + 3))
         return try await withTaskCancellationHandler {
-            let result = try LocalEndpoint.address(path) { Darwin.connect(socket.fd, $0, $1) }
+            let result = try LocalEndpoint.address(path) { connect(socket.fd, $0, $1) }
             if result != 0 {
                 guard errno == EINPROGRESS else { throw BridgeError(3, "Cannot reach the app's shared session. Open MCP Bridge with this profile and connect the server. No direct fallback was attempted.") }
                 while true {
@@ -168,29 +195,34 @@ public actor SessionHost {
         var info = stat()
         guard fstat(lock, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFREG,
               info.st_mode & 0o777 == 0o600, flock(lock, LOCK_EX | LOCK_NB) == 0 else {
-            Darwin.close(lock)
+            close(lock)
             throw BridgeError(3, "Another MCP Bridge app owns this profile, or endpoint permissions are invalid. Close that app before connecting here.")
         }
         var bound = false
         do {
             try LocalEndpoint.checkSocket(path, missingOK: true)
             _ = unlink(path)
-            let socket = try LocalSocket(Darwin.socket(AF_UNIX, SOCK_STREAM, 0))
-            guard try LocalEndpoint.address(path, { Darwin.bind(socket.fd, $0, $1) }) == 0 else { throw BridgeError(3, "Cannot bind local session socket.") }
+            #if os(Linux)
+            let socketType = Int32(SOCK_STREAM.rawValue)
+            #else
+            let socketType = SOCK_STREAM
+            #endif
+            let socket = try LocalSocket(socket(AF_UNIX, socketType, 0))
+            guard try LocalEndpoint.address(path, { bind(socket.fd, $0, $1) }) == 0 else { throw BridgeError(3, "Cannot bind local session socket.") }
             bound = true
-            guard chmod(path, 0o600) == 0, Darwin.listen(socket.fd, 32) == 0 else { throw BridgeError(3, "Cannot listen on local session socket.") }
+            guard chmod(path, 0o600) == 0, listen(socket.fd, 32) == 0 else { throw BridgeError(3, "Cannot listen on local session socket.") }
             listener = socket; lockFD = lock
             acceptTask = Task { await self.acceptConnections(socket) }
         } catch {
             if bound { _ = unlink(path) }
-            Darwin.close(lock)
+            close(lock)
             throw error
         }
     }
 
     private func acceptConnections(_ listener: LocalSocket) async {
         while !Task.isCancelled {
-            let fd = Darwin.accept(listener.fd, nil, nil)
+            let fd = accept(listener.fd, nil, nil)
             if fd < 0 {
                 if errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR { break }
                 do { try await Task.sleep(for: .milliseconds(25)) } catch { break }
@@ -249,7 +281,7 @@ public actor SessionHost {
         workers.removeAll(); listener = nil
         if lockFD >= 0 {
             _ = unlink(LocalEndpoint.path(profileURL))
-            Darwin.close(lockFD); lockFD = -1
+            close(lockFD); lockFD = -1
         }
     }
 }

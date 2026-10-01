@@ -1,7 +1,11 @@
 import Foundation
 import BridgeCore
+#if canImport(Darwin)
 import Darwin
 import Security
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 @main
 struct BridgeCLI {
@@ -28,7 +32,9 @@ struct BridgeCLI {
     static func main() async {
         // Legacy macOS Keychain ACL prompts are not covered by LAContext alone.
         // A command-line agent must fail promptly instead of waiting for an invisible prompt.
+        #if os(macOS)
         _ = SecKeychainSetUserInteractionAllowed(false)
+        #endif
         signal(SIGPIPE, SIG_IGN)
         let args = Array(CommandLine.arguments.dropFirst())
         if args == ["--help"] || args == ["-h"] || args.isEmpty { print(help); return }
@@ -126,6 +132,11 @@ struct BridgeCLI {
         if positional[0] != "call" && (useStdin || argsFile != nil) { throw BridgeError(2, "Argument input is only supported for 'call'.") }
         let server = try profile.server(serverID)
         let useSession = !direct && (requireSession || server.keepConnected)
+        #if !os(macOS)
+        if useSession {
+            throw BridgeError(2, "App-owned shared sessions are only available on macOS. Use --direct for this call.")
+        }
+        #endif
         let profileURL = config, limit = timeout
         let executor: @Sendable (BridgeOperation) async throws -> BridgeReply = { operation in
             if useSession {
@@ -151,7 +162,7 @@ struct BridgeCLI {
                 if errno == EINTR { continue }
                 throw BridgeError(2, "Could not read argument input.")
             }
-            let count = Darwin.read(file.fileDescriptor, &buffer, buffer.count)
+            let count = read(file.fileDescriptor, &buffer, buffer.count)
             if count == 0 { break }
             if count < 0 {
                 if errno == EINTR { continue }

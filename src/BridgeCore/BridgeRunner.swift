@@ -1,6 +1,13 @@
 import Foundation
 import MCP
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public enum BridgeOperation: Codable, Sendable {
     case test, listTools, describeTool(String), callTool(String, Data)
@@ -115,7 +122,11 @@ actor BridgeSession {
                 case .stdio:
                     let inherited = ProcessInfo.processInfo.environment
                     var environment = inherited.filter { ["PATH", "HOME", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL", "SHELL"].contains($0.key) }
+                    #if os(macOS)
                     environment["PATH"] = environment["PATH"] ?? "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+                    #else
+                    environment["PATH"] = environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin"
+                    #endif
                     for (key, ref) in server.environment { environment[key] = try ref.resolve() }
                     let executable = try Self.resolveExecutable(server.command!, path: environment["PATH"] ?? "")
                     let child = Process()

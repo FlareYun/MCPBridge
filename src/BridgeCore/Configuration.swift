@@ -1,6 +1,8 @@
 import Foundation
+#if canImport(Security) && canImport(LocalAuthentication)
 import Security
 import LocalAuthentication
+#endif
 
 public struct BridgeError: Error, Sendable, LocalizedError {
     public let code: Int32
@@ -131,7 +133,14 @@ public struct BridgeProfile: Codable, Sendable, Equatable {
 
 public enum ProfileStore {
     public static var defaultURL: URL {
+        #if os(macOS)
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MCP Bridge/profile.json")
+        #else
+        let environment = ProcessInfo.processInfo.environment
+        let configRoot = environment["XDG_CONFIG_HOME"].flatMap { $0.hasPrefix("/") ? $0 : nil }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config").path
+        return URL(fileURLWithPath: configRoot, isDirectory: true).appendingPathComponent("mcp-bridge/profile.json")
+        #endif
     }
     public static func load(_ url: URL) throws -> BridgeProfile {
         guard FileManager.default.fileExists(atPath: url.path) else { return BridgeProfile() }
@@ -156,13 +165,18 @@ public enum ProfileStore {
         let data = try data(profile)
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            #if os(macOS)
             try data.write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
+            #else
+            try data.write(to: url, options: [.atomic])
+            #endif
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch { throw BridgeError(2, "Cannot save profile. Choose a writable location.") }
     }
 }
 
 public enum CredentialStore {
+    #if canImport(Security) && canImport(LocalAuthentication)
     private static let service = "MCPBridge.Credentials"
     public static func read(_ name: String) throws -> String {
         let context = LAContext()
@@ -209,4 +223,15 @@ public enum CredentialStore {
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw BridgeError(2, "Could not remove the Keychain credential (status \(status)).") }
     }
+    #else
+    public static func read(_ name: String) throws -> String {
+        throw BridgeError(2, "Keychain references are available on macOS only. Use an environment reference on this platform.")
+    }
+    public static func save(_ name: String, value: String) throws {
+        throw BridgeError(2, "Credential storage is available on macOS only. Use an environment reference on this platform.")
+    }
+    public static func delete(_ name: String) throws {
+        throw BridgeError(2, "Credential storage is available on macOS only.")
+    }
+    #endif
 }

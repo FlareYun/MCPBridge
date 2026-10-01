@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Keep credential-bearing requests on their configured endpoint. The SDK accepts a
 /// URLSessionConfiguration, so a URLProtocol supplies redirect control without forking it.

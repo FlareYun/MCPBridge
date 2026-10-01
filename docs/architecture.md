@@ -4,7 +4,7 @@ The project is split into three Swift targets:
 
 - `BridgeCore` owns profile validation, MCP transport, tool discovery, calls, catalog storage, and shared-session IPC.
 - `BridgeCLI` is the `mcp-bridge` executable used by agents and shell scripts.
-- `BridgeApp` is the macOS interface for editing profiles, managing credentials, inspecting tools, and keeping selected connections open.
+- `BridgeApp` is the macOS interface for editing profiles, managing credentials, inspecting tools, and keeping selected connections open. SwiftPM omits this target on Linux.
 
 Both executable targets depend on `BridgeCore`, so they share the same profile and protocol behavior.
 
@@ -12,7 +12,7 @@ Both executable targets depend on `BridgeCore`, so they share the same profile a
 
 For a direct operation, the CLI resolves the configured server and connects over stdio or Streamable HTTP. For a shared operation, the CLI sends an operation request to the open app through a Unix-domain socket. The app checks the profile path, server ID, and configuration fingerprint before it uses its existing session.
 
-The app's socket is scoped to the local user, stored in a private directory, and uses peer UID checks. It is not an authentication boundary between mutually trusted processes running as the same user. A server must be explicitly enabled and kept connected before shared calls can use it.
+The app's socket is scoped to the local user, stored in a private directory, and uses peer UID checks. It is not an authentication boundary between mutually trusted processes running as the same user. macOS uses `getpeereid`; Linux uses `SO_PEERCRED`. A server must be explicitly enabled and kept connected before shared calls can use it. App-owned sessions are currently macOS-only.
 
 The bridge does not start a TCP listener, launch agent, or background daemon. The configured upstream server may of course make its own network connections.
 
@@ -23,9 +23,9 @@ After successful nonempty discovery, tool metadata can be saved beside the profi
 ## Source map
 
 ```text
-Sources/BridgeApp/       macOS app
-Sources/BridgeCLI/       command-line interface
-Sources/BridgeCore/      shared behavior and transport
+src/BridgeApp/           macOS app
+src/BridgeCLI/           command-line interface
+src/BridgeCore/          shared behavior and transport
 Tests/                   unit and fixture-based integration coverage
 examples/                sample profiles and local demo setup
 scripts/                 app packaging and verification helpers

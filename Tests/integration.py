@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -354,8 +355,10 @@ class IntegrationTests(unittest.TestCase):
             while not self.counter.exists() and time.monotonic() < deadline:
                 time.sleep(0.02)
             self.assertTrue(self.counter.exists())
-            sockets = subprocess.run(["/usr/sbin/lsof", "-nP", "-a", "-p", str(process.pid), "-iTCP", "-sTCP:LISTEN"], capture_output=True, text=True)
-            self.assertEqual(sockets.returncode, 1, sockets.stdout + sockets.stderr)
+            lsof = shutil.which("lsof")
+            if lsof:
+                sockets = subprocess.run([lsof, "-nP", "-a", "-p", str(process.pid), "-iTCP", "-sTCP:LISTEN"], capture_output=True, text=True)
+                self.assertEqual(sockets.returncode, 1, sockets.stdout + sockets.stderr)
             process.send_signal(signal.SIGINT)
             process.wait(timeout=4)
             stdout, stderr = process.stdout.read(), process.stderr.read()
