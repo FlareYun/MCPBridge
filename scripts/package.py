@@ -53,9 +53,6 @@ def main():
     for name in ["README.md", "CONTRIBUTING.md", "THIRD_PARTY_NOTICES.txt"]:
         shutil.copy2(ROOT / name, destination / name)
     shutil.copytree(ROOT / "docs", destination / "docs", dirs_exist_ok=True)
-    examples = destination / "examples"
-    shutil.copytree(ROOT / "examples", examples, dirs_exist_ok=True)
-    shutil.copy2(ROOT / "Tests/Fixtures/server.py", examples / "demo-server.py")
     source = destination / "source"
     ignored = [".build", ".git", ".swiftpm", "dist", "__pycache__", ".DS_Store"]
     if ROOT in destination.parents:

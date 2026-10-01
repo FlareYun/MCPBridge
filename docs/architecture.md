@@ -26,7 +26,5 @@ After successful nonempty discovery, tool metadata can be saved beside the profi
 src/BridgeApp/           macOS app
 src/BridgeCLI/           command-line interface
 src/BridgeCore/          shared behavior and transport
-Tests/                   unit and fixture-based integration coverage
-examples/                sample profiles and local demo setup
-scripts/                 app packaging and verification helpers
+scripts/                 macOS app packaging and icon helper
 ```

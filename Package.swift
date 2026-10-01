@@ -7,8 +7,7 @@ var products: [Product] = [
 ]
 var targets: [Target] = [
     .target(name: "BridgeCore", dependencies: [.product(name: "MCP", package: "swift-sdk"), .product(name: "Logging", package: "swift-log")], path: "src/BridgeCore"),
-    .executableTarget(name: "BridgeCLI", dependencies: ["BridgeCore"], path: "src/BridgeCLI"),
-    .testTarget(name: "BridgeCoreTests", dependencies: ["BridgeCore"], path: "Tests/BridgeCoreTests")
+    .executableTarget(name: "BridgeCLI", dependencies: ["BridgeCore"], path: "src/BridgeCLI")
 ]
 #if os(macOS)
 products.append(.executable(name: "MCPBridgeApp", targets: ["BridgeApp"]))

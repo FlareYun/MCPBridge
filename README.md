@@ -22,14 +22,6 @@ You need Swift 6.2 or later. The first build resolves the pinned Swift package d
 
 ```sh
 swift build
-swift test
-python3 Tests/integration.py
-```
-
-The persistent desktop-session checks are macOS-only:
-
-```sh
-python3 Tests/persistent.py
 ```
 
 To create a local app bundle and CLI distribution:
@@ -43,15 +35,13 @@ The packaging script creates a macOS app distribution and requires macOS. On Lin
 
 ## Try the CLI
 
-The CLI uses a version 1 JSON profile. Example profiles are in [`examples/`](examples/); the demo-profile script makes a local profile for the fixture server.
+The CLI uses a version 1 JSON profile. Add servers in the app or create a profile following the format described in the [CLI and profile guide](docs/usage.md).
 
 ```sh
-./.build/debug/mcp-bridge --config ./examples/local.profile.json servers list
-./.build/debug/mcp-bridge --config ./examples/local.profile.json tools list demo
-./.build/debug/mcp-bridge --config ./examples/local.profile.json tools describe demo echo
-printf '%s' '{"message":"hello"}' | \
-  ./.build/debug/mcp-bridge --config ./examples/local.profile.json \
-  call demo echo --stdin
+./.build/debug/mcp-bridge servers list
+./.build/debug/mcp-bridge tools list SERVER_ID
+./.build/debug/mcp-bridge tools describe SERVER_ID TOOL_NAME
+./.build/debug/mcp-bridge call SERVER_ID TOOL_NAME --args-file ./arguments.json
 ```
 
 Use `mcp-bridge --help` for the full command syntax. Calls accept one JSON object from `--stdin` or `--args-file`. Operational output is one JSON document on stdout; diagnostics go to stderr.

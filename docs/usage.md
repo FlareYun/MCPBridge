@@ -6,11 +6,11 @@ MCP Bridge profiles are JSON files in the bridge's own version 1 format. They ar
 
 ```sh
 mcp-bridge --config ./profile.json servers list
-mcp-bridge --config ./profile.json server test demo
-mcp-bridge --config ./profile.json tools list demo
-mcp-bridge --config ./profile.json tools describe demo echo
-mcp-bridge --config ./profile.json call demo echo --args-file ./arguments.json
-cat ./arguments.json | mcp-bridge --config ./profile.json call demo echo --stdin
+mcp-bridge --config ./profile.json server test SERVER_ID
+mcp-bridge --config ./profile.json tools list SERVER_ID
+mcp-bridge --config ./profile.json tools describe SERVER_ID TOOL_NAME
+mcp-bridge --config ./profile.json call SERVER_ID TOOL_NAME --args-file ./arguments.json
+cat ./arguments.json | mcp-bridge --config ./profile.json call SERVER_ID TOOL_NAME --stdin
 ```
 
 Use exactly one input source for a call. The input must be a JSON object no larger than 16 MiB. Tool calls are never retried automatically. A timeout or lost connection does not prove that the remote operation had no effect; check the service before deciding what to do next.
@@ -24,8 +24,8 @@ The CLI writes one JSON document to stdout for operational commands. Diagnostics
 `tools list` and `tools describe` use a matching saved catalog when available, otherwise they discover tools live. Add `--cached` to forbid a connection, or `--live` to explicitly contact the server and refresh the catalog after a nonempty result. These flags do not apply to `call`.
 
 ```sh
-mcp-bridge --config ./profile.json tools list demo --cached
-mcp-bridge --config ./profile.json tools list demo --live
+mcp-bridge --config ./profile.json tools list SERVER_ID --cached
+mcp-bridge --config ./profile.json tools list SERVER_ID --live
 ```
 
 Catalogs are metadata, not proof that a server is currently available or that a call is authorized. They do not expire automatically. Refresh after changing upstream tools, accounts, permissions, or credentials. Catalog files live in `tool-cache/` beside the profile and can be deleted to clear them.

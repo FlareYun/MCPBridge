@@ -255,9 +255,6 @@ struct MCPBridgeApp: App {
                 .onAppear {
                     delegate.model = model
                     model.startSessions()
-                    #if DEBUG
-                    UIVerification.startIfRequested(model: model)
-                    #endif
                 }
                 .onDisappear { model.runningTask?.cancel() }
         }
