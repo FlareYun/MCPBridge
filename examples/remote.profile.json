@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "id": "remote-example",
+      "transport": "http",
+      "enabled": true,
+      "url": "https://example.com/mcp",
+      "bearerToken": {"source": "environment", "name": "MCP_SERVICE_TOKEN"},
+      "timeout": 60
+    }
+  ]
+}
