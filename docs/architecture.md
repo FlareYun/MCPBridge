@@ -4,7 +4,8 @@ The project is split into three Swift targets:
 
 - `BridgeCore` owns profile validation, MCP transport, tool discovery, calls, catalog storage, and shared-session IPC.
 - `BridgeCLI` is the `mcp-bridge` executable used by agents and shell scripts.
-- `BridgeApp` is the macOS interface for editing profiles, managing credentials, inspecting tools, and keeping selected connections open. SwiftPM omits this target on Linux.
+- `BridgeApp` is the macOS interface for editing profiles, managing credentials, inspecting tools, and keeping selected connections open. SwiftPM omits this target outside macOS.
+- `windows/mcp-bridge.mjs` is the Windows CLI entry point. It uses the official MCP TypeScript client because the pinned Swift MCP transport has an unresolved Windows build issue.
 
 Both executable targets depend on `BridgeCore`, so they share the same profile and protocol behavior.
 
@@ -27,4 +28,5 @@ src/BridgeApp/           macOS app
 src/BridgeCLI/           command-line interface
 src/BridgeCore/          shared behavior and transport
 scripts/                 macOS app packaging and icon helper
+windows/                 Windows CLI
 ```

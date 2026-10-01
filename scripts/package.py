@@ -71,6 +71,10 @@ def main():
         for license_file in licenses:
             notices.append("\n--- " + license_file.name + " ---\n" + license_file.read_text())
     notice_text = "\n".join(notices)
+    repository_notices = (ROOT / "THIRD_PARTY_NOTICES.txt").read_text()
+    npm_marker = "\n\n" + "=" * 72 + "\nWindows CLI dependencies (npm)\n"
+    if npm_marker in repository_notices:
+        notice_text += npm_marker + repository_notices.split(npm_marker, 1)[1]
     (destination / "THIRD_PARTY_NOTICES.txt").write_text(notice_text)
     (resources / "THIRD_PARTY_NOTICES.txt").write_text(notice_text)
     (source / "THIRD_PARTY_NOTICES.txt").write_text(notice_text)

@@ -5,3 +5,4 @@ dist/
 *.xcuserstate
 profile.json
 tool-cache/
+node_modules/

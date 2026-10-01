@@ -4,7 +4,7 @@ MCP Bridge passes tool calls to configured upstream servers. Those servers may r
 
 ## Credentials and profiles
 
-Profile files contain configuration and credential references, not resolved Keychain or environment values. Exports also retain reference names. Do not put secrets in executable arguments, headers as literal values, or URL query strings if the profile might be shared or exported. Prefer a Keychain reference on macOS or an environment reference for a controlled CLI environment. Keychain references are unsupported on Linux.
+Profile files contain configuration and credential references, not resolved Keychain or environment values. Exports also retain reference names. Do not put secrets in executable arguments, headers as literal values, or URL query strings if the profile might be shared or exported. Prefer a Keychain reference on macOS or an environment reference for a controlled CLI environment. Keychain references are unsupported on Linux and Windows.
 
 Local server processes are launched directly, without shell interpolation. The bridge passes a small set of standard environment variables and only the additional variables mapped in the profile. Executables still run with the operating-system permissions of the user running MCP Bridge.
 

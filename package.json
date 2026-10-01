@@ -1,0 +1,15 @@
+{
+  "name": "mcp-bridge-windows-cli",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "mcp-bridge": "./windows/mcp-bridge.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.2.0"
+  }
+}

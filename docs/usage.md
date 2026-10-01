@@ -1,6 +1,6 @@
 # CLI and profile guide
 
-MCP Bridge profiles are JSON files in the bridge's own version 1 format. They are not drop-in Codex or other client's MCP configuration files. The desktop app uses `~/Library/Application Support/MCP Bridge/profile.json` by default; pass `--config /path/to/profile.json` to use another profile.
+MCP Bridge profiles are JSON files in the bridge's own version 1 format. They are not drop-in Codex or other client's MCP configuration files. The macOS app and CLI use `~/Library/Application Support/MCP Bridge/profile.json`; Linux uses `$XDG_CONFIG_HOME/mcp-bridge/profile.json` (or `~/.config/mcp-bridge/profile.json`); Windows uses `%APPDATA%\MCP Bridge\profile.json`. Pass `--config /path/to/profile.json` to use another profile.
 
 ## Common commands
 
@@ -22,6 +22,8 @@ The CLI writes one JSON document to stdout for operational commands. Diagnostics
 ## Discovery and cached catalogs
 
 `tools list` and `tools describe` use a matching saved catalog when available, otherwise they discover tools live. Add `--cached` to forbid a connection, or `--live` to explicitly contact the server and refresh the catalog after a nonempty result. These flags do not apply to `call`.
+
+The Windows CLI always discovers tools live; it does not support `--cached` or `--live` catalog options. It also requires direct connections and does not support `--session`.
 
 ```sh
 mcp-bridge --config ./profile.json tools list SERVER_ID --cached
@@ -58,4 +60,4 @@ Profiles may point to named values stored in Keychain or environment variables. 
 }
 ```
 
-Use the app's Credentials screen to create Keychain entries. Environment references can be useful for unattended CLI use. GUI apps opened from Finder may not inherit shell environment variables. See [Security notes](security.md) before putting credentials or remote services in a profile.
+Use the app's Credentials screen to create Keychain entries on macOS. On Linux and Windows, use environment references. GUI apps opened from Finder may not inherit shell environment variables. See [Security notes](security.md) before putting credentials or remote services in a profile.
