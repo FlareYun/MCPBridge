@@ -96,7 +96,7 @@ public enum BridgeRunner {
 actor BridgeSession {
     let server: ServerConfiguration
     let timeout: Double
-    let client = Client(name: "MCPBridge", version: "1.1.0")
+    let client = Client(name: "MCPBridge", version: "1.2.0")
     var initialization: Initialize.Result?
     var toolListRevision: UInt64 = 0
     var process: Process?

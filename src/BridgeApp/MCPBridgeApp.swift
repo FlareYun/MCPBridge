@@ -33,6 +33,7 @@ final class AppModel: ObservableObject {
     @Published var message: String?
     @Published var activity: [ActivityItem] = []
     @Published var profileURL = ProfileStore.defaultURL
+    private var savedProfile = BridgeProfile()
     var runningTask: Task<Void, Never>?
     let sessions = PersistentSessions()
     lazy var sessionHost = SessionHost(profileURL: profileURL, sessions: sessions)
@@ -50,9 +51,35 @@ final class AppModel: ObservableObject {
                 catch { sessionStates[server.id] = "Disconnected · reconnect required"; status = error.localizedDescription }
             }
             while !Task.isCancelled {
+                if !busy { await reloadProfileChanges() }
                 sessionStates = await sessions.statuses()
                 try? await Task.sleep(for: .milliseconds(500))
             }
+        }
+    }
+
+    private func saveProfile(_ next: BridgeProfile) throws {
+        try ProfileStore.save(next, to: profileURL, expecting: savedProfile)
+        savedProfile = next
+    }
+
+    private func reloadProfileChanges() async {
+        do {
+            let next = try ProfileStore.load(profileURL)
+            guard next != savedProfile else { return }
+            let previous = savedProfile
+            savedProfile = next
+            // Preserve a newly added, unsaved row while refreshing persisted entries.
+            let drafts = profile.servers.filter { draft in
+                !previous.servers.contains(where: { $0.id == draft.id }) && !next.servers.contains(where: { $0.id == draft.id })
+            }
+            profile = BridgeProfile(servers: next.servers + drafts)
+            if !profile.servers.contains(where: { $0.id == selectedID }) { selectedID = profile.servers.first?.id }
+            for old in previous.servers where !next.servers.contains(old) { await sessions.disconnect(old.id) }
+            restoreCatalog()
+            status = "Profile updated externally · changed shared sessions need reconnecting"
+        } catch {
+            status = "Cannot reload profile · check its format and permissions"
         }
     }
 
@@ -70,7 +97,7 @@ final class AppModel: ObservableObject {
             var next = profile
             guard let i = next.servers.firstIndex(where: { $0.id == server.id }) else { return }
             next.servers[i] = updated
-            try ProfileStore.save(next, to: profileURL)
+            try saveProfile(next)
             profile = next
         } catch { message = error.localizedDescription; return }
         changeSession(updated)
@@ -96,7 +123,7 @@ final class AppModel: ObservableObject {
         // An explicit profile supports portable setups and isolated UI verification.
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--config"), args.indices.contains(i + 1) { profileURL = URL(fileURLWithPath: args[i + 1]) }
-        do { profile = try ProfileStore.load(profileURL); selectedID = profile.servers.first?.id }
+        do { profile = try ProfileStore.load(profileURL); savedProfile = profile; selectedID = profile.servers.first?.id }
         catch { message = error.localizedDescription }
         restoreCatalog()
     }
@@ -131,26 +158,30 @@ final class AppModel: ObservableObject {
         selectedID = id; tools = []
     }
 
-    func save(_ server: ServerConfiguration, replacing id: String) {
+    func save(_ server: ServerConfiguration, replacing id: String, expecting original: ServerConfiguration) -> Bool {
         do {
+            guard profile.servers.first(where: { $0.id == id }) == original else {
+                throw BridgeError(2, "This server changed externally. Select another server and return to reload it before saving.")
+            }
             var server = server
             server.keepConnected = profile.servers.first(where: { $0.id == id })?.keepConnected ?? server.keepConnected
             try server.validate()
             guard !profile.servers.contains(where: { $0.id == server.id && $0.id != id }) else { throw BridgeError(2, "That server ID is already in use.") }
             var updated = profile
-            guard let index = updated.servers.firstIndex(where: { $0.id == id }) else { return }
+            guard let index = updated.servers.firstIndex(where: { $0.id == id }) else { return false }
             updated.servers[index] = server
-            try ProfileStore.save(updated, to: profileURL)
+            try saveProfile(updated)
             profile = updated; selectedID = server.id; tools = []; selectedTool = nil; status = "Configuration saved"
             restoreCatalog()
             changeSession(server, oldID: id)
-        } catch { message = error.localizedDescription }
+            return true
+        } catch { message = error.localizedDescription; return false }
     }
 
     func remove(_ id: String) {
         do {
             var updated = profile; updated.servers.removeAll { $0.id == id }
-            try ProfileStore.save(updated, to: profileURL)
+            try saveProfile(updated)
             profile = updated; selectedID = updated.servers.first?.id; tools = []; status = "Server removed"
             Task { await sessions.disconnect(id) }
         } catch { message = error.localizedDescription }
@@ -164,7 +195,7 @@ final class AppModel: ObservableObject {
             var imported = try ProfileStore.decode(Data(contentsOf: url))
             for i in imported.servers.indices { imported.servers[i].keepConnected = false }
             let merged = BridgeProfile(servers: profile.servers + imported.servers)
-            try ProfileStore.save(merged, to: profileURL)
+            try saveProfile(merged)
             profile = merged; selectedID = imported.servers.first?.id ?? selectedID
             status = "Imported \(imported.servers.count) servers"
         } catch { message = error.localizedDescription }
@@ -318,7 +349,7 @@ struct ContentView: View {
                     Text(model.status).font(.caption)
                     Spacer()
                     if model.busy { Button("Cancel") { model.runningTask?.cancel() }.controlSize(.small) }
-                    Text("MCP BRIDGE 1.1.0").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
+                    Text("MCP BRIDGE 1.2.0").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
                 }.padding(.horizontal, 20).padding(.vertical, 10)
             }
         }
@@ -411,12 +442,14 @@ struct ServerEditor: View {
     @EnvironmentObject var model: AppModel
     let server: ServerConfiguration
     @State private var draft: ServerConfiguration
+    @State private var original: ServerConfiguration
     @State private var arguments: String
     @State private var refs: String
     @State private var deleting = false
     init(server: ServerConfiguration) {
         self.server = server
         _draft = State(initialValue: server)
+        _original = State(initialValue: server)
         _arguments = State(initialValue: String(decoding: (try? BridgeJSON.encode(server.arguments)) ?? Data("[]".utf8), as: UTF8.self))
         let references = ReferenceFields(environment: server.environment, headers: server.headers, bearerToken: server.bearerToken)
         _refs = State(initialValue: String(decoding: (try? BridgeJSON.encode(references)) ?? Data("{}".utf8), as: UTF8.self))
@@ -432,7 +465,10 @@ struct ServerEditor: View {
             updated.arguments = try JSONDecoder().decode([String].self, from: Data(arguments.utf8))
             let references = try JSONDecoder().decode(ReferenceFields.self, from: Data(refs.utf8))
             updated.environment = references.environment; updated.headers = references.headers; updated.bearerToken = references.bearerToken
-            model.save(updated, replacing: server.id)
+            if model.save(updated, replacing: original.id, expecting: original),
+               let saved = model.profile.servers.first(where: { $0.id == updated.id }) {
+                original = saved; draft = saved
+            }
         } catch { model.message = "Arguments must be a JSON string array. References must contain environment and headers objects, plus an optional bearerToken reference." }
     }
     var body: some View {
@@ -490,6 +526,15 @@ struct ServerEditor: View {
             Text("Save changes before testing or running tools.").font(.caption).foregroundStyle(.secondary)
             Button("Save configuration", action: save).buttonStyle(.borderedProminent).keyboardShortcut("s", modifiers: .command)
         }.padding(16).disabled(model.busy)
+        }
+        .onChange(of: server) { next in
+            let oldArguments = String(decoding: (try? BridgeJSON.encode(original.arguments)) ?? Data(), as: UTF8.self)
+            let oldRefs = ReferenceFields(environment: original.environment, headers: original.headers, bearerToken: original.bearerToken)
+            let oldReferenceText = String(decoding: (try? BridgeJSON.encode(oldRefs)) ?? Data(), as: UTF8.self)
+            guard draft == original, arguments == oldArguments, refs == oldReferenceText else { return }
+            original = next; draft = next
+            arguments = String(decoding: (try? BridgeJSON.encode(next.arguments)) ?? Data(), as: UTF8.self)
+            refs = String(decoding: (try? BridgeJSON.encode(ReferenceFields(environment: next.environment, headers: next.headers, bearerToken: next.bearerToken))) ?? Data(), as: UTF8.self)
         }
         .confirmationDialog("Remove \(server.id)?", isPresented: $deleting) {
             Button("Remove server", role: .destructive) { model.remove(server.id) }

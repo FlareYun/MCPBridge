@@ -9,6 +9,10 @@ The project is split into three Swift targets:
 
 Both executable targets depend on `BridgeCore`, so they share the same profile and protocol behavior.
 
+## Profile changes
+
+`ServerManagement` validates add/update/show/remove requests without connecting to servers or resolving credential values. Add/update accept one server JSON object; updates replace supplied fields while keeping other server settings. The Swift app and CLI share profile validation, an exclusive directory lock, and atomic writes. The Windows CLI uses the same lock convention and equivalent validation. The app checks for profile changes while idle, disconnects obsolete sessions, and rejects stale saves.
+
 ## Connection routes
 
 For a direct operation, the CLI resolves the configured server and connects over stdio or Streamable HTTP. For a shared operation, the CLI sends an operation request to the open app through a Unix-domain socket. The app checks the profile path, server ID, and configuration fingerprint before it uses its existing session.

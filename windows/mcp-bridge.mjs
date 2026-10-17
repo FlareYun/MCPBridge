@@ -5,12 +5,17 @@ import path from 'node:path';
 import process from 'node:process';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { BridgeError, loadProfile, manageServer } from './profile.mjs';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const MAX_ARGUMENT_BYTES = 16 * 1024 * 1024;
 const HELP = `MCP Bridge ${VERSION} — Windows command line client for MCP tools
 
 mcp-bridge servers list
+mcp-bridge server add <server> --server-file <path> | --stdin
+mcp-bridge server update <server> --server-file <path> | --stdin
+mcp-bridge server show <server>
+mcp-bridge server remove <server>
 mcp-bridge server test <server>
 mcp-bridge tools list <server>
 mcp-bridge tools describe <server> <tool>
@@ -18,15 +23,13 @@ mcp-bridge call <server> <tool> --args-file <path>
 mcp-bridge call <server> <tool> --stdin
 
 Options: --config <profile.json>  --timeout <seconds>  --args-file <path>
-         --stdin  --direct  --help  --version
+         --stdin  --server-file <path>  --direct  --help  --version
+Configuration commands save locally without connecting or resolving credentials.
+Update changes supplied fields only; maps are replaced.
 Windows calls connect directly to the configured server. App-owned sessions,
 Keychain credentials, and cached catalogs are available in the macOS app only.
 Arguments must be one JSON object. Output is one JSON document; diagnostics use stderr.
 Exit codes: 0 success, 2 input/config, 3 connection/protocol/cancelled, 4 tool error, 5 timeout.`;
-
-class BridgeError extends Error {
-  constructor(code, message) { super(message); this.code = code; }
-}
 
 function defaultProfilePath() {
   const base = process.env.APPDATA || path.join(homedir(), 'AppData', 'Roaming');
@@ -39,6 +42,7 @@ function parseArgs(args) {
   let config = defaultProfilePath();
   let timeout;
   let argsFile;
+  let serverFile;
   let useStdin = false;
   let direct = false;
   for (let i = 0; i < args.length; i += 1) {
@@ -51,11 +55,13 @@ function parseArgs(args) {
       case '--direct': direct = true; break;
       case '--config':
       case '--timeout':
+      case '--server-file':
       case '--args-file': {
         const value = args[++i];
         if (!value || value.startsWith('--')) throw new BridgeError(2, `Missing value for '${arg}'.`);
         if (arg === '--config') config = path.resolve(value);
         else if (arg === '--args-file') argsFile = value;
+        else if (arg === '--server-file') serverFile = value;
         else {
           timeout = Number(value);
           if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 86400) {
@@ -73,37 +79,7 @@ function parseArgs(args) {
     }
   }
   if (seen.has('--cached') && seen.has('--live')) throw new BridgeError(2, 'Use either --cached or --live, not both.');
-  return { positional, config, timeout, argsFile, useStdin, direct };
-}
-
-function loadProfile(profilePath) {
-  if (!existsSync(profilePath)) {
-    throw new BridgeError(2, `Profile not found: ${profilePath}. Create it in MCP Bridge or pass --config.`);
-  }
-  let profile;
-  try { profile = JSON.parse(readFileSync(profilePath, 'utf8')); }
-  catch { throw new BridgeError(2, 'Cannot read profile. Check the file and its version-1 JSON format.'); }
-  if (profile?.version !== 1 || !Array.isArray(profile.servers)) {
-    throw new BridgeError(2, 'Unsupported profile. Expected a version-1 MCP Bridge JSON profile.');
-  }
-  const ids = new Set();
-  for (const server of profile.servers) {
-    if (!server || typeof server.id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(server.id) || ids.has(server.id)) {
-      throw new BridgeError(2, 'Server IDs must be unique and use letters, digits, dots, underscores or hyphens.');
-    }
-    ids.add(server.id);
-    if (!['stdio', 'http'].includes(server.transport)) throw new BridgeError(2, `Server '${server.id}' has an unsupported transport.`);
-    if (server.arguments !== undefined && (!Array.isArray(server.arguments) || server.arguments.some((value) => typeof value !== 'string'))) {
-      throw new BridgeError(2, `Server '${server.id}' arguments must be an array of strings.`);
-    }
-    if (server.timeout !== undefined && (!Number.isFinite(server.timeout) || server.timeout <= 0 || server.timeout > 86400)) {
-      throw new BridgeError(2, `Server '${server.id}' has an invalid timeout.`);
-    }
-    if (server.discoveryWait !== undefined && (!Number.isFinite(server.discoveryWait) || server.discoveryWait < 0 || server.discoveryWait > 86400)) {
-      throw new BridgeError(2, `Server '${server.id}' has an invalid discovery wait.`);
-    }
-  }
-  return profile;
+  return { positional, config, timeout, argsFile, serverFile, useStdin, direct };
 }
 
 function getServer(profile, id, direct) {
@@ -185,8 +161,8 @@ function transportFor(server) {
   });
 }
 
-function readArguments(argsFile, useStdin) {
-  if (Boolean(argsFile) === useStdin) throw new BridgeError(2, 'Use exactly one of --stdin or --args-file for tool arguments.');
+function readArguments(argsFile, useStdin, fileOption = '--args-file') {
+  if (Boolean(argsFile) === useStdin) throw new BridgeError(2, `Use exactly one of --stdin or ${fileOption} for JSON input.`);
   let text;
   try { text = readFileSync(useStdin ? 0 : argsFile); }
   catch { throw new BridgeError(2, 'Could not read argument input. Check the file path and permissions.'); }
@@ -286,29 +262,38 @@ async function main() {
   let exitCode = 0;
   try {
     const options = parseArgs(raw);
-    const profile = loadProfile(options.config);
     const args = options.positional;
-    if (args.length === 2 && args[0] === 'servers' && args[1] === 'list') {
-      if (options.argsFile || options.useStdin) throw new BridgeError(2, 'Argument input is only supported for call.');
-      response = { ok: true, servers: profile.servers.map(({ id, transport, enabled }) => ({ id, transport, enabled: enabled !== false })) };
+    if (args.length === 3 && args[0] === 'server' && ['add', 'update', 'show', 'remove'].includes(args[1])) {
+      if (options.timeout !== undefined || options.direct || options.argsFile) throw new BridgeError(2, 'Configuration commands accept only --config and, for add/update, --server-file or --stdin.');
+      const needsInput = ['add', 'update'].includes(args[1]);
+      if (!needsInput && (options.serverFile || options.useStdin)) throw new BridgeError(2, 'Input is only supported for server add/update.');
+      const input = needsInput ? readArguments(options.serverFile, options.useStdin, '--server-file') : undefined;
+      response = manageServer(args[1], args[2], input, options.config);
     } else {
-      let serverID; let operation;
-      if (args.length === 3 && args[0] === 'server' && args[1] === 'test') {
-        serverID = args[2]; operation = { kind: 'test' };
-      } else if (args.length === 3 && args[0] === 'tools' && args[1] === 'list') {
-        serverID = args[2]; operation = { kind: 'list' };
-      } else if (args.length === 4 && args[0] === 'tools' && args[1] === 'describe') {
-        serverID = args[2]; operation = { kind: 'describe', tool: args[3] };
-      } else if (args.length === 3 && args[0] === 'call') {
-        serverID = args[1]; operation = { kind: 'call', tool: args[2], arguments: readArguments(options.argsFile, options.useStdin) };
-      } else throw new BridgeError(2, 'Invalid command. Run --help for usage.');
-      if (operation.kind !== 'call' && (options.argsFile || options.useStdin)) throw new BridgeError(2, 'Argument input is only supported for call.');
-      const server = getServer(profile, serverID, options.direct);
-      const timeout = options.timeout ?? server.timeout ?? 60;
-      if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 86400) throw new BridgeError(2, 'Timeout must be greater than 0 and no more than 86400 seconds.');
-      response = await execute(server, operation, timeout);
-      exitCode = response.exitCode ?? 0;
-      delete response.exitCode;
+      if (options.serverFile) throw new BridgeError(2, '--server-file applies only to server add/update.');
+      const profile = loadProfile(options.config);
+      if (args.length === 2 && args[0] === 'servers' && args[1] === 'list') {
+        if (options.argsFile || options.useStdin) throw new BridgeError(2, 'Argument input is only supported for call.');
+        response = { ok: true, servers: profile.servers.map(({ id, transport, enabled }) => ({ id, transport, enabled: enabled !== false })) };
+      } else {
+        let serverID; let operation;
+        if (args.length === 3 && args[0] === 'server' && args[1] === 'test') {
+          serverID = args[2]; operation = { kind: 'test' };
+        } else if (args.length === 3 && args[0] === 'tools' && args[1] === 'list') {
+          serverID = args[2]; operation = { kind: 'list' };
+        } else if (args.length === 4 && args[0] === 'tools' && args[1] === 'describe') {
+          serverID = args[2]; operation = { kind: 'describe', tool: args[3] };
+        } else if (args.length === 3 && args[0] === 'call') {
+          serverID = args[1]; operation = { kind: 'call', tool: args[2], arguments: readArguments(options.argsFile, options.useStdin) };
+        } else throw new BridgeError(2, 'Invalid command. Run --help for usage.');
+        if (operation.kind !== 'call' && (options.argsFile || options.useStdin)) throw new BridgeError(2, 'Argument input is only supported for call.');
+        const server = getServer(profile, serverID, options.direct);
+        const timeout = options.timeout ?? server.timeout ?? 60;
+        if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 86400) throw new BridgeError(2, 'Timeout must be greater than 0 and no more than 86400 seconds.');
+        response = await execute(server, operation, timeout);
+        exitCode = response.exitCode ?? 0;
+        delete response.exitCode;
+      }
     }
   } catch (error) {
     const bridgeError = error instanceof BridgeError ? error : new BridgeError(2, 'Could not complete the command. Check the profile and input.');

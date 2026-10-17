@@ -161,7 +161,37 @@ public enum ProfileStore {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(profile)
     }
-    public static func save(_ profile: BridgeProfile, to url: URL) throws {
+    public static func save(_ profile: BridgeProfile, to url: URL, expecting previous: BridgeProfile? = nil) throws {
+        try withWriteLock(url) {
+            if let previous, try load(url) != previous {
+                throw BridgeError(2, "Profile changed in another process. Reload it before saving.")
+            }
+            try write(profile, to: url)
+        }
+    }
+
+    public static func edit(_ url: URL, _ change: (inout BridgeProfile) throws -> Void) throws {
+        try withWriteLock(url) {
+            var profile = try load(url)
+            try change(&profile)
+            try write(profile, to: url)
+        }
+    }
+
+    private static func withWriteLock<T>(_ url: URL, _ body: () throws -> T) throws -> T {
+        let lock = URL(fileURLWithPath: url.path + ".lock", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: false,
+                                                    attributes: [.posixPermissions: 0o700])
+        } catch {
+            throw BridgeError(2, "Cannot lock profile. Another process may be saving it, or the directory is not writable.")
+        }
+        defer { try? FileManager.default.removeItem(at: lock) }
+        return try body()
+    }
+
+    private static func write(_ profile: BridgeProfile, to url: URL) throws {
         let data = try data(profile)
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

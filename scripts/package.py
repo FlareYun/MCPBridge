@@ -40,7 +40,7 @@ def main():
     metadata = {
         "CFBundleName": "MCP Bridge", "CFBundleDisplayName": "MCP Bridge",
         "CFBundleExecutable": "MCPBridgeApp", "CFBundleIdentifier": "local.mcpbridge.desktop",
-        "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "1.1.0", "CFBundleVersion": "4",
+        "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "1.2.0", "CFBundleVersion": "5",
         "LSMinimumSystemVersion": "13.0", "NSHighResolutionCapable": True,
         "CFBundleIconFile": "AppIcon", "NSPrincipalClass": "NSApplication",
         "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
@@ -54,7 +54,7 @@ def main():
         shutil.copy2(ROOT / name, destination / name)
     shutil.copytree(ROOT / "docs", destination / "docs", dirs_exist_ok=True)
     source = destination / "source"
-    ignored = [".build", ".git", ".swiftpm", "dist", "__pycache__", ".DS_Store"]
+    ignored = [".build", ".git", ".swiftpm", "dist", "node_modules", "__pycache__", ".DS_Store", ".env", ".env.*", ".agents", ".codex", ".aws"]
     if ROOT in destination.parents:
         ignored.append(destination.relative_to(ROOT).parts[0])
     shutil.copytree(ROOT, source, dirs_exist_ok=True,

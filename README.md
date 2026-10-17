@@ -9,6 +9,7 @@ The app can keep a server session open and let the CLI use that session over a p
 - CLI: macOS, Linux, or Windows
 - Native desktop app: macOS 13 or later
 - MCP servers over stdio and Streamable HTTP
+- Server configuration from the CLI or macOS app
 - Tool discovery, schema inspection, and tool calls
 - Optional saved tool catalogs for offline inspection on macOS and Linux
 - Named credentials from macOS Keychain or environment variables
@@ -46,7 +47,7 @@ To put `mcp-bridge` on your PATH for this checkout, run `npm link` from the repo
 
 ## Try the CLI
 
-The CLI uses a version 1 JSON profile. Add servers in the app or create a profile following the format described in the [CLI and profile guide](docs/usage.md).
+The CLI uses a version 1 JSON profile. Add a server with `mcp-bridge server add SERVER_ID --server-file ./server.json`, or use the macOS app. Use `server update`, `server show`, and `server remove` to manage entries. Configuration commands do not connect to servers. See the [CLI and profile guide](docs/usage.md) for the JSON format and update behavior.
 
 ```sh
 ./.build/debug/mcp-bridge servers list
